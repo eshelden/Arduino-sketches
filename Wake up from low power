@@ -1,0 +1,67 @@
+#include <RTClib.h>
+#include <Wire.h>
+#include <LowPower.h>
+
+// This sketch uses a DS3231 RTC module to wake an arduino nano 
+// from low power mode at 1 minute intervals
+// Connect the RTC module to the Arduino Nano:
+// VCC of RTC to 5V on Arduino
+// GND of RTC to GND on Arduino
+// SCL of RTC to A5 on Arduino (SCL pin)
+// SDA of RTC to A4 on Arduino (SDA pin)
+// SQW of RTC to D2 on Arduino (Interrupt pin)
+
+RTC_DS3231 rtc;
+volatile bool alarmFlag = false;
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1); // Stop execution if the RTC is not connected
+  }
+
+  if (rtc.lostPower()) {
+    Serial.println("RTC lost power, let's set the time!");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Set RTC date and time to compile time
+  }
+
+  rtc.clearAlarm(1);  // Clear any existing alarms
+  rtc.clearAlarm(2);
+  rtc.writeSqwPinMode(DS3231_OFF);  // Turn off the square wave output
+
+  setNextAlarm();
+
+  // Setup the interrupt pin (Arduino pin D2) to respond to the alarm
+  attachInterrupt(digitalPinToInterrupt(2), alarmInterrupt, FALLING);
+}
+
+void loop() {
+  if (alarmFlag) {
+    Serial.println("Alarm triggered!");
+    Serial.flush();
+    alarmFlag = false;
+
+    // Clear the triggering alarm and reset for next interval
+    rtc.clearAlarm(1);
+    rtc.clearAlarm(2);
+
+    setNextAlarm();
+  }
+
+  // Put the Arduino into a deep sleep mode
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+  delay(100);  // Small delay to stabilize the system after wake-up
+}
+
+void setNextAlarm() {
+  // Set the alarm for 5 minutes from now
+  DateTime now = rtc.now();
+  DateTime future(now.year(), now.month(), now.day(), now.hour(), now.minute() + 1, 0);
+  rtc.setAlarm1(future, DS3231_A1_Minute);
+}
+
+void alarmInterrupt() {
+  alarmFlag = true; // Set the flag to true when the interrupt occurs
+}
